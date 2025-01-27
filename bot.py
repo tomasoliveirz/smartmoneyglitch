@@ -8,9 +8,9 @@ import os
 # ----------------------------------------------------------------
 # API and User Configuration
 # ----------------------------------------------------------------
-api_id = 23722329
-api_hash = '8ca09f4311d7d3587c1412aa2b98acce'
-phone_number = '+351 939813279'
+api_id = VALOR_DA_API_ID
+api_hash = VALOR_DA_API_HASH
+phone_number = '+351 O_TEU_NUMERO'
 
 # Group and Bot details
 group_id = 4639774418
