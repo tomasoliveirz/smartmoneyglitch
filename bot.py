@@ -11,7 +11,6 @@ import os
 api_id = VALOR_DA_API_ID
 api_hash = VALOR_DA_API_HASH
 phone_number = '+351 O_TEU_NUMERO'
-
 # Group and Bot details
 group_id = 4639774418
 bot_username = 'CashCash_trade_bot'
@@ -97,7 +96,7 @@ async def click_buy_0_25_sol_button(event):
                     print(f"[INFO] Found button with text '{text_btn}'. Clicking...")
                     try:
                         await event.click(i - 1, j - 1)  # zero-based indexing
-                        print("[INFO] Button clicked successfully!")
+                        print("[INFO] Button 'Buy 0.25 SOL' clicked successfully!")
                         return True
                     except Exception as e:
                         print(f"[ERROR] Failed to click the button: {e}")
@@ -107,6 +106,36 @@ async def click_buy_0_25_sol_button(event):
         print("[WARN] No button containing 'Buy 0.25 SOL' was found.")
     else:
         print("[DEBUG] Bot message has no buttons.")
+    return False
+
+
+# ----------------------------------------------------------------
+# Click the 'Try Again' button if it exists
+# ----------------------------------------------------------------
+async def click_try_again_button(event):
+    """
+    Searches for a button containing 'Try Again' in its text.
+    Clicks on it if found.
+    """
+    if event.buttons:
+        print(f"[DEBUG] Checking for 'Try Again' button. Found {len(event.buttons)} row(s) of buttons.")
+        for i, row in enumerate(event.buttons, start=1):
+            for j, button in enumerate(row, start=1):
+                text_btn = getattr(button, 'text', '')
+                if 'Try Again' in text_btn:  # Ajusta para o texto real que o bot usa
+                    print(f"[INFO] Found 'Try Again' button: '{text_btn}'. Clicking...")
+                    try:
+                        await event.click(i - 1, j - 1)
+                        print("[INFO] 'Try Again' button clicked!")
+                        return True
+                    except Exception as e:
+                        print(f"[ERROR] Failed to click 'Try Again': {e}")
+                        return False
+                else:
+                    print(f"    [DEBUG] Button col {j}: '{text_btn}' is not 'Try Again'.")
+        print("[WARN] No button containing 'Try Again' was found.")
+    else:
+        print("[DEBUG] No buttons in this message to check for 'Try Again'.")
     return False
 
 
@@ -128,9 +157,9 @@ async def monitor_messages(event):
     if matches:
         parsed_prices = []
         for zero_count, digits in matches:
-            if zero_count:  # e.g. $0.{3}283
+            if zero_count:  # e.g. $0.{3}283 => 0.000283
                 constructed_price_str = "0." + ("0" * int(zero_count)) + digits
-            else:  # e.g. $0.0022 (no braces)
+            else:           # e.g. $0.0022
                 constructed_price_str = "0." + digits
 
             try:
@@ -166,14 +195,6 @@ async def monitor_messages(event):
                     print(f"[INFO] Found CA: {ca_val}")
                     found_ca = True
 
-                    # Check if CA was already purchased or is pending
-                    if ca_val in purchased_cas:
-                        print(f"[INFO] CA '{ca_val}' is already purchased. Ignoring.")
-                        continue
-                    if ca_val in pending_cas:
-                        print(f"[INFO] CA '{ca_val}' is already pending. Ignoring.")
-                        continue
-
                     # Check if the min_avg_price is within the desired range
                     if min_avg_price is not None and 0.00035 <= min_avg_price <= 0.15:
                         print("[INFO] Price is within the range (0.00035 - 0.15). Sending /start ca_...")
@@ -202,6 +223,26 @@ async def handle_bot_responses(event):
     print(f"[DEBUG] Message ID: {event.id}")
     print(f"[DEBUG] Sender ID: {event.sender_id}")
     print(f"[DEBUG] Message text:\n{event.raw_text}")
+
+    # ----------------------------------------------------------------
+    # SCENARIO A: If there's a "BuyTransaction Fail", try to "Try Again"
+    #             and then attempt "Buy 0.25 SOL" once more
+    # ----------------------------------------------------------------
+    fail_marker = "BuyTransaction Fail"
+    if fail_marker in event.raw_text:
+        print("[WARN] The bot indicates a BuyTransaction Fail. Attempting to 'Try Again'...")
+
+        # 1) Click the 'Try Again' button if it exists
+        tried = await click_try_again_button(event)
+
+        # 2) Whether or not 'Try Again' existed, try once more to buy 0.25 SOL
+        print("[INFO] Attempting to buy 0.25 SOL again regardless of purchased status.")
+        await click_buy_0_25_sol_button(event)
+        return  # After dealing with fail scenario, we can stop here.
+
+    # ----------------------------------------------------------------
+    # SCENARIO B: Normal queue-based purchase (standard flow)
+    # ----------------------------------------------------------------
 
     # Check if there are any pending CAs
     if ca_queue.empty():
