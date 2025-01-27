@@ -1,7 +1,5 @@
 # README (Configuração e Execução)
 
-Este README descreve os passos essenciais para configurar e executar o script de monitorização de CA (sem incluir o código-fonte completo).
-
 ---
 
 ## 1. Pré-Requisitos
