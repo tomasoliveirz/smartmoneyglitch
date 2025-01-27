@@ -81,7 +81,7 @@ bot_username = 'CashCash_trade_bot'
 1. **Activar** o ambiente virtual (caso ainda não esteja activo).
 2. **Executar** o script com Python:
    ```bash
-   python nome_do_arquivo.py
+   python bot.py
    ```
 3. Ao correr pela primeira vez, o Telethon pode **pedir o código de confirmação** enviado pelo Telegram para o número que forneceu (`phone_number`). Introduza esse código no terminal quando for solicitado.
 
