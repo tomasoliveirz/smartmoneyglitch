@@ -39,6 +39,10 @@ pending_cas = set()
 # ----------------------------------------------------------------
 file_lock = asyncio.Lock()
 
+# ----------------------------------------------------------------
+# Set to store processed message IDs (to prevent double handling)
+# ----------------------------------------------------------------
+processed_messages = set()
 
 # ----------------------------------------------------------------
 # Load purchased CAs from file
@@ -52,11 +56,9 @@ def load_purchased_cas():
                     purchased_cas.add(ca)
         print(f"[INFO] {len(purchased_cas)} purchased CAs loaded from '{PURCHASED_CAS_FILE}'.")
     else:
-        # Create the file if it does not exist
         with open(PURCHASED_CAS_FILE, 'w') as f:
             pass
         print(f"[INFO] File '{PURCHASED_CAS_FILE}' created to store purchased CAs.")
-
 
 # ----------------------------------------------------------------
 # Save a purchased CA to file
@@ -67,7 +69,6 @@ async def save_purchased_ca(ca):
             f.write(f"{ca}\n")
     print(f"[INFO] CA '{ca}' saved to '{PURCHASED_CAS_FILE}'.")
 
-
 # ----------------------------------------------------------------
 # Send /start ca_<hash> to Bot B
 # ----------------------------------------------------------------
@@ -77,7 +78,6 @@ async def send_to_bot(ca):
     await client.send_message(bot_username, command)
     print(f"[INFO] CA '{ca}' sent to bot @{bot_username}")
 
-
 # ----------------------------------------------------------------
 # Click the inline button that contains 'Buy 0.25 SOL'
 # ----------------------------------------------------------------
@@ -85,59 +85,57 @@ async def click_buy_0_25_sol_button(event):
     """
     Iterates over inline buttons in the message:
     - Searches for a button whose text contains 'Buy 0.25 SOL'.
-    - Clicks that button if found.
+    - Clicks that button if found, then returns True immediately.
     """
     if event.buttons:
         print(f"[DEBUG] Bot message has {len(event.buttons)} row(s) of buttons.")
-        for i, row in enumerate(event.buttons, start=1):
-            for j, button in enumerate(row, start=1):
+        for i, row in enumerate(event.buttons, start=0):    # zero-based index for event.click
+            for j, button in enumerate(row, start=0):
                 text_btn = getattr(button, 'text', '')
                 if 'Buy 0.25 SOL' in text_btn:
                     print(f"[INFO] Found button with text '{text_btn}'. Clicking...")
                     try:
-                        await event.click(i - 1, j - 1)  # zero-based indexing
+                        await event.click(i, j)
                         print("[INFO] Button 'Buy 0.25 SOL' clicked successfully!")
-                        return True
+                        return True  # STOP searching further
                     except Exception as e:
                         print(f"[ERROR] Failed to click the button: {e}")
                         return False
                 else:
-                    print(f"    [DEBUG] Button col {j}: '{text_btn}' does not match.")
+                    print(f"    [DEBUG] Button col {j+1}: '{text_btn}' does not match.")
         print("[WARN] No button containing 'Buy 0.25 SOL' was found.")
     else:
         print("[DEBUG] Bot message has no buttons.")
     return False
-
 
 # ----------------------------------------------------------------
 # Click the 'Try Again' button if it exists
 # ----------------------------------------------------------------
 async def click_try_again_button(event):
     """
-    Searches for a button containing 'Try Again' in its text.
-    Clicks on it if found.
+    Searches for a button containing 'Try Again' (or similar) in its text.
+    Clicks on it if found, then returns True if successfully clicked.
     """
     if event.buttons:
         print(f"[DEBUG] Checking for 'Try Again' button. Found {len(event.buttons)} row(s) of buttons.")
-        for i, row in enumerate(event.buttons, start=1):
-            for j, button in enumerate(row, start=1):
+        for i, row in enumerate(event.buttons, start=0):
+            for j, button in enumerate(row, start=0):
                 text_btn = getattr(button, 'text', '')
-                if 'Try Again' in text_btn:  # Ajusta para o texto real que o bot usa
+                if 'Try Again' in text_btn:
                     print(f"[INFO] Found 'Try Again' button: '{text_btn}'. Clicking...")
                     try:
-                        await event.click(i - 1, j - 1)
+                        await event.click(i, j)
                         print("[INFO] 'Try Again' button clicked!")
                         return True
                     except Exception as e:
                         print(f"[ERROR] Failed to click 'Try Again': {e}")
                         return False
                 else:
-                    print(f"    [DEBUG] Button col {j}: '{text_btn}' is not 'Try Again'.")
+                    print(f"    [DEBUG] Button col {j+1}: '{text_btn}' is not 'Try Again'.")
         print("[WARN] No button containing 'Try Again' was found.")
     else:
         print("[DEBUG] No buttons in this message to check for 'Try Again'.")
     return False
-
 
 # ----------------------------------------------------------------
 # Handler: Group messages (where the CA + Price appear)
@@ -150,7 +148,6 @@ async def monitor_messages(event):
     print(message_text)
 
     # 1) Extract prices ($0.xxxx) including the format $0.{3}283 => 0.000283
-    #    Then determine min_avg_price
     pattern = r'\$0\.(?:\{(\d+)\})?(\d+)'  # captures optional braces {n} for zeros + trailing digits
     matches = re.findall(pattern, message_text)
 
@@ -159,7 +156,7 @@ async def monitor_messages(event):
         for zero_count, digits in matches:
             if zero_count:  # e.g. $0.{3}283 => 0.000283
                 constructed_price_str = "0." + ("0" * int(zero_count)) + digits
-            else:           # e.g. $0.0022
+            else:
                 constructed_price_str = "0." + digits
 
             try:
@@ -195,22 +192,21 @@ async def monitor_messages(event):
                     print(f"[INFO] Found CA: {ca_val}")
                     found_ca = True
 
-                    # Check if the min_avg_price is within the desired range
+                    # Se tivermos min_avg_price e estiver no intervalo
                     if min_avg_price is not None and 0.00035 <= min_avg_price <= 0.15:
-                        print("[INFO] Price is within the range (0.00035 - 0.15). Sending /start ca_...")
+                        print("[INFO] Price is within range (0.00035 - 0.15). Sending /start ca_...")
                         await send_to_bot(ca_val)
                         await ca_queue.put(ca_val)
                         pending_cas.add(ca_val)
                         print(f"[DEBUG] CA '{ca_val}' added to the queue and marked as pending.")
                     else:
                         if min_avg_price is not None:
-                            print(f"[INFO] min_avg_price = {min_avg_price} is out of the allowed range (0.00035 - 0.15). Not buying.")
+                            print(f"[INFO] min_avg_price = {min_avg_price} out of range (0.00035 - 0.15). Not buying.")
                         else:
                             print("[INFO] No min_avg_price found. Not buying.")
 
     if not found_ca:
         print("[DEBUG] No CA extracted from entities in this message.")
-
 
 # ----------------------------------------------------------------
 # Handler: Messages from Bot B (bot_username)
@@ -224,32 +220,31 @@ async def handle_bot_responses(event):
     print(f"[DEBUG] Sender ID: {event.sender_id}")
     print(f"[DEBUG] Message text:\n{event.raw_text}")
 
-    # ----------------------------------------------------------------
-    # SCENARIO A: If there's a "BuyTransaction Fail", try to "Try Again"
-    #             and then attempt "Buy 0.25 SOL" once more
-    # ----------------------------------------------------------------
+    # 1) Evitar processar a mesma mensagem mais de uma vez
+    if event.id in processed_messages:
+        print(f"[INFO] Message ID {event.id} has already been processed. Skipping.")
+        return
+    processed_messages.add(event.id)
+
+    # 2) Verificar se houve erro de BuyTransaction
     fail_marker = "BuyTransaction Fail"
     if fail_marker in event.raw_text:
-        print("[WARN] The bot indicates a BuyTransaction Fail. Attempting to 'Try Again'...")
+        print("[WARN] The bot indicates a BuyTransaction Fail. Attempting 'Try Again'...")
 
-        # 1) Click the 'Try Again' button if it exists
-        tried = await click_try_again_button(event)
+        # a) Tentar clicar no botão "Try Again"
+        await click_try_again_button(event)
 
-        # 2) Whether or not 'Try Again' existed, try once more to buy 0.25 SOL
-        print("[INFO] Attempting to buy 0.25 SOL again regardless of purchased status.")
+        # b) Tentar novamente "Buy 0.25 SOL"
+        print("[INFO] Attempting to buy 0.25 SOL again (ignoring purchased status).")
         await click_buy_0_25_sol_button(event)
-        return  # After dealing with fail scenario, we can stop here.
+        return
 
-    # ----------------------------------------------------------------
-    # SCENARIO B: Normal queue-based purchase (standard flow)
-    # ----------------------------------------------------------------
-
-    # Check if there are any pending CAs
+    # 3) Caso normal: processar a fila de CA
     if ca_queue.empty():
         print("[WARN] No pending CA for this bot response.")
         return
 
-    # Retrieve the next CA from the queue
+    # 4) Obter CA da fila
     try:
         ca = await ca_queue.get()
         print(f"[DEBUG] CA '{ca}' retrieved from the queue for processing.")
@@ -257,34 +252,29 @@ async def handle_bot_responses(event):
         print(f"[ERROR] Failed to retrieve CA from the queue: {e}")
         return
 
-    # Attempt to click the buy button
+    # 5) Tentar clicar no botão "Buy 0.25 SOL"
     buy_success = await click_buy_0_25_sol_button(event)
 
     if buy_success:
-        # Mark this CA as purchased and save to file
+        # Marcar como comprado
         purchased_cas.add(ca)
         await save_purchased_ca(ca)
-        # Remove from pending set
         pending_cas.discard(ca)
     else:
-        print(f"[ERROR] Failed to click the 'Buy 0.25 SOL' button for CA '{ca}'.")
-        # Optionally, re-queue the CA to try again
+        print(f"[ERROR] Failed to click 'Buy 0.25 SOL' for CA '{ca}'.")
+        # Opcional: Recolocar na fila:
         # await ca_queue.put(ca)
-
 
 # ----------------------------------------------------------------
 # Main function
 # ----------------------------------------------------------------
 async def main():
-    # Load purchased CAs from file
     load_purchased_cas()
-
     print("[DEBUG] Starting Telethon session...")
     await client.start(phone=phone_number)
     print("[INFO] UserBot is now connected and running...")
     print("[DEBUG] Listening for messages... (Press Ctrl+C to stop)")
     await client.run_until_disconnected()
-
 
 if __name__ == '__main__':
     asyncio.run(main())
